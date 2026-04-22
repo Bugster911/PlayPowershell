@@ -70,6 +70,33 @@ Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
 } -ArgumentList $Lab.VMs.SubCA.IP, $Lab.DefaultGateway, $Lab.VMs.DC.IP, 24
 Write-OK "Static IP confirmed."
 
+# -- Step 0b: Enforce hostname (self-heals when unattend fails) ----------------
+Write-Status "Ensuring hostname is '$subVMName' on the VM..."
+$wrongName = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
+    param($expectedName)
+    $current = $env:COMPUTERNAME
+    if ($current -ne $expectedName) {
+        Rename-Computer -NewName $expectedName -Force
+        Write-Host "  Renamed from '$current' to '$expectedName' - reboot required."
+        return $true
+    }
+    Write-Host "  Hostname already correct: $current"
+    return $false
+} -ArgumentList $subVMName
+
+if ($wrongName) {
+    Write-Warn "Rebooting $subVMName after rename..."
+    Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock { Restart-Computer -Force }
+    Start-Sleep 60
+    Write-Status "Waiting for $subVMName to come back after rename..."
+    $deadline = (Get-Date).AddMinutes(10)
+    while ((Get-Date) -lt $deadline) {
+        try { Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock { $true } -ErrorAction Stop | Out-Null; break }
+        catch { Start-Sleep 20 }
+    }
+    Write-OK "$subVMName back online with correct hostname."
+}
+
 # -- Step 1: Join the domain --------------------------------------------------
 Write-Status "Joining $subVMName to domain '$domain'..."
 $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
