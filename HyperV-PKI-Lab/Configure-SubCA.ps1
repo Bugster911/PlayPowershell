@@ -1,12 +1,12 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Phase 4 – Configure LAB-SUBCA01 as an Enterprise Subordinate CA.
+    Phase 4 - Configure LAB-SUBCA01 as an Enterprise Subordinate CA.
     Called by Deploy-PKI-Lab.ps1 -Phase 4.
 
 .DESCRIPTION
     1. Joins LAB-SUBCA01 to the domain
-    2. Installs ADCS (Enterprise Subordinate CA) – generates a cert request (.req)
+    2. Installs ADCS (Enterprise Subordinate CA) - generates a cert request (.req)
     3. Copies the .req to LAB-ROOTCA via PowerShell Direct
     4. Signs the SubCA cert on LAB-ROOTCA
     5. Copies the signed cert back and installs it on LAB-SUBCA01
@@ -42,7 +42,7 @@ $rootName   = $Lab.RootCAName
 $subCAName  = $Lab.SubCAName
 $domain     = $Lab.DomainName
 
-# ── Wait for SubCA VM ────────────────────────────────────────────────────────
+# -- Wait for SubCA VM --------------------------------------------------------
 Write-Status "Waiting for '$subVMName' PowerShell Direct..."
 $deadline = (Get-Date).AddMinutes(15)
 while ((Get-Date) -lt $deadline) {
@@ -51,7 +51,7 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "$subVMName reachable."
 
-# ── Step 1: Join the domain ──────────────────────────────────────────────────
+# -- Step 1: Join the domain --------------------------------------------------
 Write-Status "Joining $subVMName to domain '$domain'..."
 $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
     param($domainName, $domainUser, $domainPass, $dcIP)
@@ -69,7 +69,7 @@ $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptB
     $cred = New-Object pscredential($domainUser, (ConvertTo-SecureString $domainPass -AsPlainText -Force))
     Add-Computer -DomainName $domainName -Credential $cred -OUPath "OU=PKI,OU=Servers,DC=$($domainName.Split('.') -join ',DC=')" `
                  -Force -ErrorAction Stop
-    Write-Host "  Domain join initiated – reboot required."
+    Write-Host "  Domain join initiated - reboot required."
     return $true
 } -ArgumentList $domain, "$($Lab.DomainNetbios)\Administrator", $Lab.AdminPassword, $Lab.VMs.DC.IP
 
@@ -87,7 +87,7 @@ if ($needsReboot) {
     Write-OK "$subVMName rejoined domain."
 }
 
-# ── Step 2: Write CAPolicy.inf on SubCA ──────────────────────────────────────
+# -- Step 2: Write CAPolicy.inf on SubCA --------------------------------------
 Write-Status "Writing CAPolicy.inf on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($subCAName, $subCAFQDN)
@@ -123,7 +123,7 @@ AlternateSignatureAlgorithm=0
     Write-Host "  CAPolicy.inf written."
 } -ArgumentList $subCAName, "$subVMName.$domain"
 
-# ── Step 3: Install ADCS role on SubCA ───────────────────────────────────────
+# -- Step 3: Install ADCS role on SubCA ---------------------------------------
 Write-Status "Installing ADCS role on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     $features = @(
@@ -143,7 +143,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 }
 Write-OK "ADCS + OCSP role installed."
 
-# ── Step 4: Configure Enterprise Subordinate CA (generates .req) ─────────────
+# -- Step 4: Configure Enterprise Subordinate CA (generates .req) -------------
 Write-Status "Configuring Enterprise Subordinate CA on $subVMName..."
 $reqFile = Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($caName)
@@ -188,7 +188,7 @@ $reqFile = Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBloc
 if (-not $reqFile) { throw "Could not locate SubCA .req file on $subVMName." }
 Write-OK "SubCA request file: $reqFile"
 
-# ── Step 5: Copy .req from SubCA to Hyper-V host, then to RootCA ─────────────
+# -- Step 5: Copy .req from SubCA to Hyper-V host, then to RootCA -------------
 Write-Status "Transferring SubCA request to RootCA for signing..."
 $hostTempDir = Join-Path $Lab.VMStorePath "PKI-Transfer"
 if (-not (Test-Path $hostTempDir)) { New-Item -ItemType Directory -Path $hostTempDir | Out-Null }
@@ -206,7 +206,7 @@ Copy-Item -ToSession $rootSession -Path $hostReqPath -Destination 'C:\RootCA\Req
 Remove-PSSession $rootSession
 Write-OK ".req transferred to RootCA."
 
-# ── Step 6: Sign the SubCA cert on RootCA ────────────────────────────────────
+# -- Step 6: Sign the SubCA cert on RootCA ------------------------------------
 Write-Status "Signing SubCA certificate on $rootVMName..."
 Invoke-Command -VMName $rootVMName -Credential $localCred -ScriptBlock {
     param($rootName)
@@ -238,12 +238,12 @@ Invoke-Command -VMName $rootVMName -Credential $localCred -ScriptBlock {
     if (Test-Path $certPath) {
         Write-Host "  SubCA cert signed: $certPath"
     } else {
-        throw "SubCA cert signing failed – $certPath not found."
+        throw "SubCA cert signing failed - $certPath not found."
     }
 } -ArgumentList $rootName
 Write-OK "SubCA cert signed by Root CA."
 
-# ── Step 7: Copy signed cert + RootCA cert back to host, then to SubCA ────────
+# -- Step 7: Copy signed cert + RootCA cert back to host, then to SubCA --------
 Write-Status "Transferring signed cert and Root CA cert to SubCA..."
 $hostCertPath    = Join-Path $hostTempDir "SubCA.crt"
 $hostRootCrtPath = Join-Path $hostTempDir "$rootName.crt"
@@ -262,7 +262,7 @@ Copy-Item -ToSession $subSession -Path $hostRootCrlPath -Destination "C:\SubCA\$
 Remove-PSSession $subSession
 Write-OK "Certs transferred to SubCA."
 
-# ── Step 8: Install Root CA cert into Windows cert store on SubCA ─────────────
+# -- Step 8: Install Root CA cert into Windows cert store on SubCA -------------
 Write-Status "Installing Root CA cert into trust stores on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($rootName)
@@ -275,7 +275,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Write-Host "  Root CA cert added to Local Machine\Root"
 } -ArgumentList $rootName
 
-# ── Step 9: Complete the SubCA installation with the signed cert ───────────────
+# -- Step 9: Complete the SubCA installation with the signed cert ---------------
 Write-Status "Completing SubCA installation on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     # Install the parent (root) cert chain first
@@ -290,7 +290,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 }
 Write-OK "SubCA is active."
 
-# ── Step 10: Configure CDP and AIA on SubCA ────────────────────────────────────
+# -- Step 10: Configure CDP and AIA on SubCA ------------------------------------
 Write-Status "Configuring CDP/AIA extensions on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($subCAName, $domainName, $rootName)
@@ -336,7 +336,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
         -Uri $ocspURL `
         -AddToCertificateOcsp -Force | Out-Null
 
-    # CRL schedule (7 days base, 4 hour delta – good for lab)
+    # CRL schedule (7 days base, 4 hour delta - good for lab)
     certutil -setreg CA\CRLPeriodUnits 7       | Out-Null
     certutil -setreg CA\CRLPeriod "Days"       | Out-Null
     certutil -setreg CA\CRLDeltaPeriodUnits 4  | Out-Null
@@ -355,7 +355,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 } -ArgumentList $subVMName, $domain, $rootName
 Write-OK "CDP/AIA configured on SubCA."
 
-# ── Step 11: Publish Root CA cert + CRL to Active Directory ──────────────────
+# -- Step 11: Publish Root CA cert + CRL to Active Directory ------------------
 Write-Status "Publishing Root CA into Active Directory..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($rootName)
@@ -364,7 +364,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Write-Host "  Root CA cert and CRL published to Active Directory."
 } -ArgumentList $rootName
 
-# ── Step 12: Copy CRL to IIS PKI share on DC ─────────────────────────────────
+# -- Step 12: Copy CRL to IIS PKI share on DC ---------------------------------
 Write-Status "Copying CRL and certs to IIS PKI share on DC..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($dcName, $rootName)
@@ -381,7 +381,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Write-Host "  PKI files copied to $pkiShare"
 } -ArgumentList $Lab.VMs.DC.Name, $rootName
 
-# ── Step 13: Enable OCSP template on SubCA ───────────────────────────────────
+# -- Step 13: Enable OCSP template on SubCA -----------------------------------
 Write-Status "Enabling OCSP Response Signing certificate template..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     # Enable the OCSPResponseSigning template (built-in)
@@ -389,10 +389,10 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Write-Host "  OCSPResponseSigning template enabled on CA."
 
     # Configure auto-enrollment for OCSP signing cert (granted to OCSP server computer account)
-    # This is done via the template ACL – we grant the SubCA computer account Enroll + AutoEnroll
+    # This is done via the template ACL - we grant the SubCA computer account Enroll + AutoEnroll
     Import-Module ActiveDirectory
     $subCAComputer = "$env:COMPUTERNAME$"
-    # Template permissions are set in ADSI – handled in Configure-OCSP.ps1
+    # Template permissions are set in ADSI - handled in Configure-OCSP.ps1
     Write-Host "  Template auto-enrollment will be configured in Phase 5 (OCSP)."
 }
 
@@ -400,7 +400,7 @@ Write-OK "=== Subordinate CA configuration complete ==="
 Write-Host ""
 Write-Host "PKI hierarchy is now:" -ForegroundColor Green
 Write-Host "  $($Lab.RootCAName)  (Standalone Root, offline)" -ForegroundColor Green
-Write-Host "    └── $($Lab.SubCAName)  (Enterprise Issuing CA, online)" -ForegroundColor Green
+Write-Host "    +-- $($Lab.SubCAName)  (Enterprise Issuing CA, online)" -ForegroundColor Green
 Write-Host ""
 Write-Host "Next: Run Phase 5 to configure the OCSP Responder:" -ForegroundColor Yellow
 Write-Host "  .\Deploy-PKI-Lab.ps1 -Phase 5" -ForegroundColor Yellow

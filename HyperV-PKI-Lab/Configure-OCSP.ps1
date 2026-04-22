@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Phase 5 – Configure the Online Certificate Status Protocol (OCSP) Responder
+    Phase 5 - Configure the Online Certificate Status Protocol (OCSP) Responder
     on LAB-SUBCA01.
     Called by Deploy-PKI-Lab.ps1 -Phase 5.
 
@@ -41,7 +41,7 @@ $rootName  = $Lab.RootCAName
 $domain    = $Lab.DomainName
 $ocspURL   = "http://$subVMName.$domain/ocsp"
 
-# ── Wait for SubCA VM ────────────────────────────────────────────────────────
+# -- Wait for SubCA VM --------------------------------------------------------
 Write-Status "Waiting for '$subVMName' PowerShell Direct..."
 $deadline = (Get-Date).AddMinutes(10)
 while ((Get-Date) -lt $deadline) {
@@ -50,7 +50,7 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "$subVMName reachable."
 
-# ── Step 1: Ensure Online Responder role is installed and IIS is ready ────────
+# -- Step 1: Ensure Online Responder role is installed and IIS is ready --------
 Write-Status "Verifying Online Responder (OCSP) role installation..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     $needed = @('ADCS-Online-Cert','Web-Server','Web-Asp-Net45','Web-Mgmt-Console')
@@ -63,7 +63,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Write-Host "  All OCSP/IIS features present."
 }
 
-# ── Step 2: Install (configure) the Online Responder service ─────────────────
+# -- Step 2: Install (configure) the Online Responder service -----------------
 Write-Status "Configuring Online Responder on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Import-Module ADCSDeployment
@@ -90,7 +90,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 }
 Write-OK "Online Responder service configured."
 
-# ── Step 3: Grant the OCSPResponseSigning template to SubCA machine account ──
+# -- Step 3: Grant the OCSPResponseSigning template to SubCA machine account --
 Write-Status "Granting OCSPResponseSigning template enroll rights to SubCA machine account..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($subVMName, $domain)
@@ -129,7 +129,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Write-Host "  Enroll + AutoEnroll granted on OCSPResponseSigning to $subVMName$"
 } -ArgumentList $subVMName, $domain
 
-# ── Step 4: Request the OCSP Response Signing certificate ─────────────────────
+# -- Step 4: Request the OCSP Response Signing certificate ---------------------
 Write-Status "Requesting OCSP Response Signing certificate..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($subCAName)
@@ -177,14 +177,14 @@ OID=1.3.6.1.5.5.7.3.9
         certreq -Accept $crtPath 2>&1 | Write-Host
         Write-Host "  OCSP Response Signing cert installed in machine store."
     } else {
-        Write-Warn "  Could not auto-enroll – trying gpupdate and autoenrollment trigger..."
+        Write-Warn "  Could not auto-enroll - trying gpupdate and autoenrollment trigger..."
         certutil -pulse | Out-Null
         Start-Sleep 15
     }
 } -ArgumentList $subCAName
 Write-OK "OCSP signing certificate requested."
 
-# ── Step 5: Create OCSP Revocation Configuration ──────────────────────────────
+# -- Step 5: Create OCSP Revocation Configuration ------------------------------
 Write-Status "Creating OCSP Revocation Configuration for '$subCAName'..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($subCAName, $domainName, $subVMName)
@@ -202,7 +202,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 
     $revConfig = $ocspAdmin.OCSPCAConfigurationCollection.CreateCAConfiguration(
         $subCAName,      # Identifier
-        [System.Convert]::FromBase64String('')  # empty – we'll set via signing cert
+        [System.Convert]::FromBase64String('')  # empty - we'll set via signing cert
     )
 
     # Find the SubCA certificate in the CA store to get its thumbprint
@@ -239,7 +239,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 } -ArgumentList $subCAName, $domain, $subVMName
 Write-OK "OCSP revocation configuration created."
 
-# ── Step 6: Restart OCSP service and IIS ─────────────────────────────────────
+# -- Step 6: Restart OCSP service and IIS -------------------------------------
 Write-Status "Restarting OcspSvc and W3SVC..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Restart-Service OcspSvc -Force
@@ -250,7 +250,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 }
 Write-OK "Services restarted."
 
-# ── Step 7: Verify OCSP with certutil ─────────────────────────────────────────
+# -- Step 7: Verify OCSP with certutil -----------------------------------------
 Write-Status "Verifying OCSP responder..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     param($ocspURL, $subCAName)
@@ -273,7 +273,7 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 } -ArgumentList $ocspURL, $subCAName
 Write-OK "OCSP verification complete."
 
-# ── Step 8: Configure IIS to serve /ocsp application correctly ────────────────
+# -- Step 8: Configure IIS to serve /ocsp application correctly ----------------
 Write-Status "Verifying IIS OCSP application endpoint..."
 Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
     Import-Module WebAdministration
@@ -296,8 +296,8 @@ Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBlock {
 }
 Write-OK "IIS OCSP endpoint verified."
 
-# ── Summary ────────────────────────────────────────────────────────────────────
-Write-Status "=== PHASE 5 COMPLETE – OCSP LAB READY ===" 'Magenta'
+# -- Summary --------------------------------------------------------------------
+Write-Status "=== PHASE 5 COMPLETE - OCSP LAB READY ===" 'Magenta'
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "  PKI Lab Summary" -ForegroundColor Green

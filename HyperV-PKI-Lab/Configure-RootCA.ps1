@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Phase 3 – Configure LAB-ROOTCA as a Standalone Offline Root CA.
+    Phase 3 - Configure LAB-ROOTCA as a Standalone Offline Root CA.
     Called by Deploy-PKI-Lab.ps1 -Phase 3.
 
 .DESCRIPTION
@@ -43,7 +43,7 @@ $rootName = $Lab.RootCAName
 $subCAIP  = $Lab.VMs.SubCA.IP
 $dcIP     = $Lab.VMs.DC.IP
 
-# ── Wait for VM ──────────────────────────────────────────────────────────────
+# -- Wait for VM --------------------------------------------------------------
 Write-Status "Waiting for '$vmName' PowerShell Direct..."
 $deadline = (Get-Date).AddMinutes(15)
 while ((Get-Date) -lt $deadline) {
@@ -52,7 +52,7 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "$vmName reachable."
 
-# ── Step 1: CAPolicy.inf ─────────────────────────────────────────────────────
+# -- Step 1: CAPolicy.inf -----------------------------------------------------
 Write-Status "Writing CAPolicy.inf on $vmName..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     param($rootName)
@@ -85,7 +85,7 @@ AlternateSignatureAlgorithm=0
     Write-Host "  CAPolicy.inf written."
 } -ArgumentList $rootName
 
-# ── Step 2: Install ADCS role ────────────────────────────────────────────────
+# -- Step 2: Install ADCS role ------------------------------------------------
 Write-Status "Installing ADCS role on $vmName..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     if (-not (Get-WindowsFeature 'AD-Certificate').Installed) {
@@ -98,7 +98,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
 }
 Write-OK "ADCS role ready."
 
-# ── Step 3: Configure Standalone Root CA ─────────────────────────────────────
+# -- Step 3: Configure Standalone Root CA -------------------------------------
 Write-Status "Configuring Standalone Root CA '$rootName'..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     param($caName)
@@ -106,7 +106,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     # Check if CA is already configured
     $svc = Get-Service -Name 'CertSvc' -ErrorAction SilentlyContinue
     if ($svc -and $svc.Status -eq 'Running') {
-        Write-Host "  CertSvc already running – CA already configured."
+        Write-Host "  CertSvc already running - CA already configured."
         return
     }
 
@@ -129,7 +129,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
 } -ArgumentList $rootName
 Write-OK "Root CA configured."
 
-# ── Step 4: Configure CRL and CDP/AIA extensions ─────────────────────────────
+# -- Step 4: Configure CRL and CDP/AIA extensions -----------------------------
 Write-Status "Configuring CRL schedule and CDP/AIA on $vmName..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     param($rootName, $subCAName, $domainName)
@@ -177,7 +177,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
 } -ArgumentList $rootName, $Lab.VMs.SubCA.Name, $Lab.DomainName
 Write-OK "CDP/AIA configured."
 
-# ── Step 5: Export Root CA cert + CRL to a local folder ──────────────────────
+# -- Step 5: Export Root CA cert + CRL to a local folder ----------------------
 Write-Status "Exporting Root CA cert and CRL..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     param($rootName)
@@ -216,7 +216,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
 } -ArgumentList $rootName
 Write-OK "Root CA cert and CRL exported."
 
-# ── Copy Root CA cert + CRL from VM to Hyper-V host via PowerShell Direct ────
+# -- Copy Root CA cert + CRL from VM to Hyper-V host via PowerShell Direct ----
 Write-Status "Copying Root CA cert and CRL to Hyper-V host..."
 $hostOutputDir = Join-Path $Lab.VMStorePath "RootCA-Export"
 if (-not (Test-Path $hostOutputDir)) { New-Item -ItemType Directory -Path $hostOutputDir | Out-Null }

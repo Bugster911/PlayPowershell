@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Phase 2 – Configure LAB-DC01 as Active Directory Domain Controller.
+    Phase 2 - Configure LAB-DC01 as Active Directory Domain Controller.
     Called by Deploy-PKI-Lab.ps1 -Phase 2.
 
 .DESCRIPTION
@@ -33,7 +33,7 @@ $localCred  = New-Object pscredential('Administrator',
 
 $vmName = $Lab.VMs.DC.Name
 
-# ── Wait for the VM to accept PowerShell Direct connections ──────────────────
+# -- Wait for the VM to accept PowerShell Direct connections ------------------
 Write-Status "Waiting for '$vmName' to be reachable via PowerShell Direct..."
 $deadline = (Get-Date).AddMinutes(15)
 while ((Get-Date) -lt $deadline) {
@@ -45,7 +45,7 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "'$vmName' is reachable."
 
-# ── Step 1: Verify / fix static IP ───────────────────────────────────────────
+# -- Step 1: Verify / fix static IP -------------------------------------------
 Write-Status "Verifying static IP on $vmName..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     param($ip, $gw, $dns, $prefix)
@@ -63,7 +63,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     }
 } -ArgumentList $Lab.VMs.DC.IP, $Lab.DefaultGateway, $Lab.VMs.DC.IP, 24
 
-# ── Step 2: Install AD DS + DNS roles ────────────────────────────────────────
+# -- Step 2: Install AD DS + DNS roles ----------------------------------------
 Write-Status "Installing AD DS and DNS roles on $vmName..."
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
     $features = @('AD-Domain-Services','DNS','RSAT-AD-Tools','RSAT-DNS-Server')
@@ -78,7 +78,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
 }
 Write-OK "Roles installed."
 
-# ── Step 3: Promote to Domain Controller ─────────────────────────────────────
+# -- Step 3: Promote to Domain Controller -------------------------------------
 Write-Status "Promoting $vmName to forest root DC for domain '$($Lab.DomainName)'..."
 
 Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
@@ -112,7 +112,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
 Write-Warn "DC is rebooting after promotion. Waiting 90 seconds before reconnecting..."
 Start-Sleep -Seconds 90
 
-# ── Wait for DC to come back up with domain credentials ──────────────────────
+# -- Wait for DC to come back up with domain credentials ----------------------
 $domainCred = New-Object pscredential("$($Lab.DomainNetbios)\Administrator",
                   (ConvertTo-SecureString $Lab.AdminPassword -AsPlainText -Force))
 
@@ -127,7 +127,7 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "DC is back online."
 
-# ── Step 4: Create domain accounts and groups ─────────────────────────────────
+# -- Step 4: Create domain accounts and groups ---------------------------------
 Write-Status "Creating lab user accounts and OUs..."
 Invoke-Command -VMName $vmName -Credential $domainCred -ScriptBlock {
     param($dn, $adminPass, $domainName)
@@ -157,7 +157,7 @@ Invoke-Command -VMName $vmName -Credential $domainCred -ScriptBlock {
 
 } -ArgumentList $Lab.DomainDN, $Lab.AdminPassword, $Lab.DomainName
 
-# ── Step 5: Add DNS records for CA machines ───────────────────────────────────
+# -- Step 5: Add DNS records for CA machines -----------------------------------
 Write-Status "Adding DNS A-records for CA machines..."
 Invoke-Command -VMName $vmName -Credential $domainCred -ScriptBlock {
     param($zone, $rootCAName, $rootCAIP, $subCAName, $subCAIP)
@@ -177,7 +177,7 @@ Invoke-Command -VMName $vmName -Credential $domainCred -ScriptBlock {
     }
 } -ArgumentList $Lab.DomainName, $Lab.VMs.RootCA.Name, $Lab.VMs.RootCA.IP, $Lab.VMs.SubCA.Name, $Lab.VMs.SubCA.IP
 
-# ── Step 6: Create CRL / CDP web share folder ────────────────────────────────
+# -- Step 6: Create CRL / CDP web share folder --------------------------------
 Write-Status "Creating PKI web share on DC (CDP/AIA)..."
 Invoke-Command -VMName $vmName -Credential $domainCred -ScriptBlock {
     param($subCAName, $domainName)

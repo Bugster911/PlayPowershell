@@ -11,11 +11,11 @@
       - LAB-SUBCA01 : Enterprise Subordinate / Issuing CA + OCSP Responder
 
     Workflow (run each phase after the previous one completes):
-      Phase 1  – Create virtual switch + VMs, inject unattend.xml, boot to install
-      Phase 2  – Configure DC  (run AFTER Windows setup finishes on LAB-DC01)
-      Phase 3  – Configure RootCA  (run AFTER Windows setup finishes on LAB-ROOTCA)
-      Phase 4  – Configure SubCA   (run AFTER LAB-DC01 is fully promoted)
-      Phase 5  – Configure OCSP    (run AFTER SubCA cert is issued)
+      Phase 1  - Create virtual switch + VMs, inject unattend.xml, boot to install
+      Phase 2  - Configure DC  (run AFTER Windows setup finishes on LAB-DC01)
+      Phase 3  - Configure RootCA  (run AFTER Windows setup finishes on LAB-ROOTCA)
+      Phase 4  - Configure SubCA   (run AFTER LAB-DC01 is fully promoted)
+      Phase 5  - Configure OCSP    (run AFTER SubCA cert is issued)
 
 .PARAMETER Phase
     Which phase to execute: 1 | 2 | 3 | 4 | 5
@@ -24,19 +24,19 @@
     Full path to the Windows Server 2025 ISO.
 
 .EXAMPLE
-    # Step 1 – create the VMs
+    # Step 1 - create the VMs
     .\Deploy-PKI-Lab.ps1 -Phase 1 -ISOPath "D:\ISO\WinSrv2025.iso"
 
-    # Step 2 – configure the DC (run after OS install completes)
+    # Step 2 - configure the DC (run after OS install completes)
     .\Deploy-PKI-Lab.ps1 -Phase 2
 
-    # Step 3 – configure Root CA
+    # Step 3 - configure Root CA
     .\Deploy-PKI-Lab.ps1 -Phase 3
 
-    # Step 4 – configure Subordinate CA
+    # Step 4 - configure Subordinate CA
     .\Deploy-PKI-Lab.ps1 -Phase 4
 
-    # Step 5 – configure OCSP Responder
+    # Step 5 - configure OCSP Responder
     .\Deploy-PKI-Lab.ps1 -Phase 5
 #>
 
@@ -54,7 +54,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------------------
-# LAB CONFIGURATION  –  edit this block to suit your environment
+# LAB CONFIGURATION  -  edit this block to suit your environment
 # ---------------------------------------------------------------------------
 $Lab = @{
     # Hyper-V host paths
@@ -120,7 +120,7 @@ function Write-Warn  { param([string]$M) Write-Status "!   $M" 'Yellow' }
 function Write-Fail  { param([string]$M) Write-Status "ERR $M" 'Red'    }
 
 # ---------------------------------------------------------------------------
-# PHASE 1 – Create VMs
+# PHASE 1 - Create VMs
 # ---------------------------------------------------------------------------
 function Invoke-Phase1 {
     param([string]$ISO)
@@ -174,7 +174,7 @@ function New-LabVM {
     $vhdPath = Join-Path $Lab.VHDStorePath "$name-OS.vhdx"
 
     if (Get-VM -Name $name -ErrorAction SilentlyContinue) {
-        Write-Warn "VM '$name' already exists – skipping creation."
+        Write-Warn "VM '$name' already exists - skipping creation."
         return
     }
 
@@ -449,10 +449,10 @@ function Inject-UnattendToVHD {
     $partition   = $disk | Get-Partition | Where-Object { $_.Type -eq 'Basic' -and $_.Size -gt 5GB } | Select-Object -First 1
 
     if (-not $partition) {
-        # VHD is blank (no OS yet) – we cannot inject into an unpartitioned disk.
+        # VHD is blank (no OS yet) - we cannot inject into an unpartitioned disk.
         # The unattend will need to be placed differently. We'll use a secondary VHD approach.
         Dismount-VHD -Path $VHDPath
-        Write-Warn "  VHD is blank – skipping unattend injection (will be picked up from floppy/secondary drive)."
+        Write-Warn "  VHD is blank - skipping unattend injection (will be picked up from floppy/secondary drive)."
         New-UnattendFloppy -UnattendFile $UnattendFile -VHDPath $VHDPath
         return
     }
@@ -531,7 +531,7 @@ function Wait-VMReady {
 }
 
 # ---------------------------------------------------------------------------
-# Entry point – dispatch phases
+# Entry point - dispatch phases
 # ---------------------------------------------------------------------------
 switch ($Phase) {
     1 { Invoke-Phase1 -ISO $ISOPath }
