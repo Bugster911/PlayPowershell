@@ -68,11 +68,24 @@ $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptB
     ipconfig /flushdns | Out-Null
     Start-Sleep 8
 
-    # Verify DC is reachable before attempting join
-    if (-not (Test-Connection -ComputerName $dcIP -Count 3 -Quiet)) {
-        throw "Cannot ping DC at $dcIP. Check that LAB-DC01 is running and on the same virtual switch."
+    # Verify DC is reachable via TCP (LDAP port 389) - Test-Connection is unreliable in PS Direct
+    $dcReachable = $false
+    for ($i = 1; $i -le 5; $i++) {
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect($dcIP, 389)
+            $tcp.Close()
+            $dcReachable = $true
+            break
+        } catch {
+            Write-Host "  DC connectivity attempt $i/5 failed - waiting 10s..."
+            Start-Sleep 10
+        }
     }
-    Write-Host "  DC reachable at $dcIP"
+    if (-not $dcReachable) {
+        throw "Cannot reach DC at ${dcIP}:389 (LDAP). Ensure LAB-DC01 is running and on the same Hyper-V virtual switch as LAB-SUBCA01."
+    }
+    Write-Host "  DC reachable at $dcIP (LDAP:389)"
 
     # Verify DNS resolves the domain (DC must be up and DNS running)
     $resolved = Resolve-DnsName -Name $domainName -Server $dcIP -ErrorAction SilentlyContinue
