@@ -51,6 +51,25 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "$subVMName reachable."
 
+# -- Step 0: Enforce static IP (self-heals when unattend fails) ---------------
+Write-Status "Ensuring static IP on $subVMName..."
+Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
+    param($ip, $gw, $dns, $prefix)
+    $adapter = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
+    $existing = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    if (-not $existing -or $existing.IPAddress -ne $ip) {
+        Remove-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+        Remove-NetRoute     -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+        New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ip -PrefixLength $prefix -DefaultGateway $gw | Out-Null
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dns
+        ipconfig /flushdns | Out-Null
+        Write-Host "  Static IP set: $ip (was APIPA or wrong)"
+    } else {
+        Write-Host "  Static IP already correct: $ip"
+    }
+} -ArgumentList $Lab.VMs.SubCA.IP, $Lab.DefaultGateway, $Lab.VMs.DC.IP, 24
+Write-OK "Static IP confirmed."
+
 # -- Step 1: Join the domain --------------------------------------------------
 Write-Status "Joining $subVMName to domain '$domain'..."
 $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
