@@ -51,56 +51,32 @@ while ((Get-Date) -lt $deadline) {
 }
 Write-OK "$subVMName reachable."
 
-# -- Step 0: Enforce static IP (self-heals when unattend fails) ---------------
+# -- Step 0: Enforce static IP ------------------------------------------------
+# Must disable DHCP first — Remove-NetIPAddress cannot remove APIPA addresses.
 Write-Status "Ensuring static IP on $subVMName..."
 Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
-    param($ip, $gw, $dns, $prefix)
+    param($ip, $gw, $dns)
     $adapter = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
-    $existing = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
-    if (-not $existing -or $existing.IPAddress -ne $ip) {
-        Remove-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-        Remove-NetRoute     -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
-        New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ip -PrefixLength $prefix -DefaultGateway $gw | Out-Null
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dns
-        ipconfig /flushdns | Out-Null
-        Write-Host "  Static IP set: $ip (was APIPA or wrong)"
-    } else {
+    $current = (Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 `
+                    -ErrorAction SilentlyContinue | Select-Object -First 1).IPAddress
+    if ($current -eq $ip) {
         Write-Host "  Static IP already correct: $ip"
+        return
     }
-} -ArgumentList $Lab.VMs.SubCA.IP, $Lab.DefaultGateway, $Lab.VMs.DC.IP, 24
+    # netsh set address disables DHCP and sets static IP in one step (handles APIPA)
+    $ifName = $adapter.InterfaceAlias
+    netsh interface ip set address name="$ifName" static $ip 255.255.255.0 $gw | Out-Null
+    netsh interface ip set dns    name="$ifName" static $dns | Out-Null
+    ipconfig /flushdns | Out-Null
+    Write-Host "  Static IP set via netsh: $ip (was: $current)"
+} -ArgumentList $Lab.VMs.SubCA.IP, $Lab.DefaultGateway, $Lab.VMs.DC.IP
 Write-OK "Static IP confirmed."
 
-# -- Step 0b: Enforce hostname (self-heals when unattend fails) ----------------
-Write-Status "Ensuring hostname is '$subVMName' on the VM..."
-$wrongName = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
-    param($expectedName)
-    $current = $env:COMPUTERNAME
-    if ($current -ne $expectedName) {
-        Rename-Computer -NewName $expectedName -Force
-        Write-Host "  Renamed from '$current' to '$expectedName' - reboot required."
-        return $true
-    }
-    Write-Host "  Hostname already correct: $current"
-    return $false
-} -ArgumentList $subVMName
-
-if ($wrongName) {
-    Write-Warn "Rebooting $subVMName after rename..."
-    Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock { Restart-Computer -Force }
-    Start-Sleep 60
-    Write-Status "Waiting for $subVMName to come back after rename..."
-    $deadline = (Get-Date).AddMinutes(10)
-    while ((Get-Date) -lt $deadline) {
-        try { Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock { $true } -ErrorAction Stop | Out-Null; break }
-        catch { Start-Sleep 20 }
-    }
-    Write-OK "$subVMName back online with correct hostname."
-}
-
-# -- Step 1: Join the domain --------------------------------------------------
+# -- Step 1: Rename + join the domain in one operation ------------------------
+# Add-Computer -NewName handles rename + join atomically (one reboot).
 Write-Status "Joining $subVMName to domain '$domain'..."
 $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptBlock {
-    param($domainName, $domainUser, $domainPass, $dcIP)
+    param($domainName, $domainUser, $domainPass, $dcIP, $expectedName)
 
     # Check already joined
     if ((Get-WmiObject Win32_ComputerSystem).PartOfDomain) {
@@ -108,13 +84,12 @@ $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptB
         return $false
     }
 
-    # Set DNS to DC and flush cache
-    $adapter = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
-    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dcIP
-    ipconfig /flushdns | Out-Null
-    Start-Sleep 8
+    $needsRename = ($env:COMPUTERNAME -ne $expectedName)
+    if ($needsRename) {
+        Write-Host "  Hostname is '$env:COMPUTERNAME' - will rename to '$expectedName' during join."
+    }
 
-    # Verify DC is reachable via TCP (LDAP port 389) - Test-Connection is unreliable in PS Direct
+    # Verify DC is reachable via TCP (LDAP port 389)
     $dcReachable = $false
     for ($i = 1; $i -le 5; $i++) {
         try {
@@ -129,33 +104,36 @@ $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptB
         }
     }
     if (-not $dcReachable) {
-        throw "Cannot reach DC at ${dcIP}:389 (LDAP). Ensure LAB-DC01 is running and on the same Hyper-V virtual switch as LAB-SUBCA01."
+        throw "Cannot reach DC at ${dcIP}:389. Ensure LAB-DC01 is running."
     }
-    Write-Host "  DC reachable at $dcIP (LDAP:389)"
+    Write-Host "  DC reachable at ${dcIP}:389"
 
-    # Verify DNS resolves the domain (DC must be up and DNS running)
+    # Verify DNS resolves the domain
     $resolved = Resolve-DnsName -Name $domainName -Server $dcIP -ErrorAction SilentlyContinue
     if (-not $resolved) {
-        throw "DNS resolution of '$domainName' failed via $dcIP. Ensure Phase 2 (DC) completed successfully."
+        throw "DNS resolution of '$domainName' failed via $dcIP."
     }
     Write-Host "  DNS resolved: $domainName"
 
-    $cred = New-Object pscredential($domainUser, (ConvertTo-SecureString $domainPass -AsPlainText -Force))
+    $cred   = New-Object pscredential($domainUser, (ConvertTo-SecureString $domainPass -AsPlainText -Force))
     $ouPath = "OU=PKI,OU=Servers,DC=$($domainName.Split('.') -join ',DC=')"
 
-    # Try joining into the PKI OU; fall back to default Computers if OU missing
+    $params = @{ DomainName = $domainName; Credential = $cred; Force = $true }
+    if ($needsRename) { $params.NewName = $expectedName }
+
+    # Try PKI OU first, fall back to default Computers container
     try {
-        Add-Computer -DomainName $domainName -Credential $cred -OUPath $ouPath -Force -ErrorAction Stop
+        Add-Computer @params -OUPath $ouPath -ErrorAction Stop
         Write-Host "  Joined domain in OU: $ouPath"
     } catch {
-        Write-Host "  OU join failed ($($_.Exception.Message)) - retrying into default Computers container..."
-        Add-Computer -DomainName $domainName -Credential $cred -Force -ErrorAction Stop
+        Write-Host "  OU join failed - using Computers container..."
+        Add-Computer @params -ErrorAction Stop
         Write-Host "  Joined domain (Computers container)"
     }
 
     Write-Host "  Domain join successful - reboot required."
     return $true
-} -ArgumentList $domain, "$($Lab.DomainNetbios)\Administrator", $Lab.AdminPassword, $Lab.VMs.DC.IP
+} -ArgumentList $domain, "$($Lab.DomainNetbios)\Administrator", $Lab.AdminPassword, $Lab.VMs.DC.IP, $subVMName
 
 if ($needsReboot) {
     Write-Warn "Rebooting $subVMName for domain join..."
