@@ -62,14 +62,39 @@ $needsReboot = Invoke-Command -VMName $subVMName -Credential $localCred -ScriptB
         return $false
     }
 
-    # Point DNS at DC first
+    # Set DNS to DC and flush cache
     $adapter = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
     Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dcIP
+    ipconfig /flushdns | Out-Null
+    Start-Sleep 8
+
+    # Verify DC is reachable before attempting join
+    if (-not (Test-Connection -ComputerName $dcIP -Count 3 -Quiet)) {
+        throw "Cannot ping DC at $dcIP. Check that LAB-DC01 is running and on the same virtual switch."
+    }
+    Write-Host "  DC reachable at $dcIP"
+
+    # Verify DNS resolves the domain (DC must be up and DNS running)
+    $resolved = Resolve-DnsName -Name $domainName -Server $dcIP -ErrorAction SilentlyContinue
+    if (-not $resolved) {
+        throw "DNS resolution of '$domainName' failed via $dcIP. Ensure Phase 2 (DC) completed successfully."
+    }
+    Write-Host "  DNS resolved: $domainName"
 
     $cred = New-Object pscredential($domainUser, (ConvertTo-SecureString $domainPass -AsPlainText -Force))
-    Add-Computer -DomainName $domainName -Credential $cred -OUPath "OU=PKI,OU=Servers,DC=$($domainName.Split('.') -join ',DC=')" `
-                 -Force -ErrorAction Stop
-    Write-Host "  Domain join initiated - reboot required."
+    $ouPath = "OU=PKI,OU=Servers,DC=$($domainName.Split('.') -join ',DC=')"
+
+    # Try joining into the PKI OU; fall back to default Computers if OU missing
+    try {
+        Add-Computer -DomainName $domainName -Credential $cred -OUPath $ouPath -Force -ErrorAction Stop
+        Write-Host "  Joined domain in OU: $ouPath"
+    } catch {
+        Write-Host "  OU join failed ($($_.Exception.Message)) - retrying into default Computers container..."
+        Add-Computer -DomainName $domainName -Credential $cred -Force -ErrorAction Stop
+        Write-Host "  Joined domain (Computers container)"
+    }
+
+    Write-Host "  Domain join successful - reboot required."
     return $true
 } -ArgumentList $domain, "$($Lab.DomainNetbios)\Administrator", $Lab.AdminPassword, $Lab.VMs.DC.IP
 
