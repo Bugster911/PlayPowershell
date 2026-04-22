@@ -17,7 +17,8 @@ $scripts = @(
     'Configure-DC.ps1',
     'Configure-RootCA.ps1',
     'Configure-SubCA.ps1',
-    'Configure-OCSP.ps1'
+    'Configure-OCSP.ps1',
+    'unattend_template.xml'
 )
 
 New-Item -ItemType Directory -Path $destDir -Force | Out-Null

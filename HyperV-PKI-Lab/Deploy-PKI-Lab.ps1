@@ -228,7 +228,7 @@ function New-LabVM {
 }
 
 # ---------------------------------------------------------------------------
-# Unattend.xml generation
+# Unattend.xml generation  (loads unattend_template.xml - no here-string)
 # ---------------------------------------------------------------------------
 function New-UnattendXml {
     param(
@@ -237,197 +237,26 @@ function New-UnattendXml {
         [string]$Role
     )
 
-    $encodedPass  = [Convert]::ToBase64String(
-                        [Text.Encoding]::Unicode.GetBytes($Lab.AdminPassword + 'AdministratorPassword'))
+    $templatePath = Join-Path $PSScriptRoot 'unattend_template.xml'
+    if (-not (Test-Path $templatePath)) {
+        throw "unattend_template.xml not found at: $templatePath`nDownload it alongside Deploy-PKI-Lab.ps1"
+    }
 
-    # DNS for RootCA stays the DC IP; for DC itself use loopback during setup
+    $encodedPass = [Convert]::ToBase64String(
+                       [Text.Encoding]::Unicode.GetBytes($Lab.AdminPassword + 'AdministratorPassword'))
+
     $dns = if ($Role -eq 'DC') { '127.0.0.1' } else { $Lab.DNSServer }
 
-    $xml = @"
-<?xml version="1.0" encoding="utf-8"?>
-<unattend xmlns="urn:schemas-microsoft-com:unattend">
-  <!-- ===== Windows PE (disk partitioning) ===== -->
-  <settings pass="windowsPE">
-    <component name="Microsoft-Windows-International-Core-WinPE"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <InputLocale>en-US</InputLocale>
-      <SystemLocale>en-US</SystemLocale>
-      <UILanguage>en-US</UILanguage>
-      <UserLocale>en-US</UserLocale>
-    </component>
-    <component name="Microsoft-Windows-Setup"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <DiskConfiguration>
-        <Disk wcm:action="add">
-          <DiskID>0</DiskID>
-          <WillWipeDisk>true</WillWipeDisk>
-          <CreatePartitions>
-            <!-- EFI System Partition -->
-            <CreatePartition wcm:action="add">
-              <Order>1</Order>
-              <Type>EFI</Type>
-              <Size>260</Size>
-            </CreatePartition>
-            <!-- Microsoft Reserved -->
-            <CreatePartition wcm:action="add">
-              <Order>2</Order>
-              <Type>MSR</Type>
-              <Size>128</Size>
-            </CreatePartition>
-            <!-- OS Partition (rest of disk) -->
-            <CreatePartition wcm:action="add">
-              <Order>3</Order>
-              <Type>Primary</Type>
-              <Extend>true</Extend>
-            </CreatePartition>
-          </CreatePartitions>
-          <ModifyPartitions>
-            <ModifyPartition wcm:action="add">
-              <Order>1</Order>
-              <PartitionID>1</PartitionID>
-              <Format>FAT32</Format>
-              <Label>System</Label>
-            </ModifyPartition>
-            <ModifyPartition wcm:action="add">
-              <Order>2</Order>
-              <PartitionID>2</PartitionID>
-            </ModifyPartition>
-            <ModifyPartition wcm:action="add">
-              <Order>3</Order>
-              <PartitionID>3</PartitionID>
-              <Format>NTFS</Format>
-              <Label>OS</Label>
-              <Letter>C</Letter>
-            </ModifyPartition>
-          </ModifyPartitions>
-        </Disk>
-      </DiskConfiguration>
-      <ImageInstall>
-        <OSImage>
-          <InstallTo>
-            <DiskID>0</DiskID>
-            <PartitionID>3</PartitionID>
-          </InstallTo>
-          <!-- Index 2 = Windows Server 2025 Standard (Desktop Experience) -->
-          <InstallFrom>
-            <MetaData wcm:action="add">
-              <Key>/IMAGE/INDEX</Key>
-              <Value>2</Value>
-            </MetaData>
-          </InstallFrom>
-          <WillShowUI>OnError</WillShowUI>
-        </OSImage>
-      </ImageInstall>
-      <UserData>
-        <AcceptEula>true</AcceptEula>
-        <FullName>Administrator</FullName>
-        <Organization>LAB</Organization>
-      </UserData>
-    </component>
-  </settings>
-
-  <!-- ===== Specialize (first boot, unique settings) ===== -->
-  <settings pass="specialize">
-    <component name="Microsoft-Windows-Shell-Setup"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <ComputerName>$VMName</ComputerName>
-      <TimeZone>UTC</TimeZone>
-    </component>
-    <component name="Microsoft-Windows-TCPIP"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <Interfaces>
-        <Interface wcm:action="add">
-          <Identifier>Ethernet</Identifier>
-          <Ipv4Settings>
-            <DhcpEnabled>false</DhcpEnabled>
-          </Ipv4Settings>
-          <UnicastIpAddresses>
-            <IpAddress wcm:action="add" wcm:keyValue="1">$IPAddress/24</IpAddress>
-          </UnicastIpAddresses>
-          <Routes>
-            <Route wcm:action="add">
-              <Identifier>0</Identifier>
-              <Prefix>0.0.0.0/0</Prefix>
-              <NextHopAddress>$($Lab.DefaultGateway)</NextHopAddress>
-            </Route>
-          </Routes>
-        </Interface>
-      </Interfaces>
-    </component>
-    <component name="Microsoft-Windows-DNS-Client"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <Interfaces>
-        <Interface wcm:action="add">
-          <Identifier>Ethernet</Identifier>
-          <DNSServerSearchOrder>
-            <IpAddress wcm:action="add" wcm:keyValue="1">$dns</IpAddress>
-          </DNSServerSearchOrder>
-          <DNSDomain>$($Lab.DomainName)</DNSDomain>
-        </Interface>
-      </Interfaces>
-    </component>
-    <component name="Microsoft-Windows-ServerManager-SvrMgrNc"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS">
-      <DoNotOpenServerManagerAtLogon>true</DoNotOpenServerManagerAtLogon>
-    </component>
-  </settings>
-
-  <!-- ===== OOBE System (final setup) ===== -->
-  <settings pass="oobeSystem">
-    <component name="Microsoft-Windows-Shell-Setup"
-               processorArchitecture="amd64"
-               publicKeyToken="31bf3856ad364e35"
-               language="neutral" versionScope="nonSxS"
-               xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <OOBE>
-        <HideEULAPage>true</HideEULAPage>
-        <HideLocalAccountScreen>true</HideLocalAccountScreen>
-        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
-        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
-        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
-        <NetworkLocation>Work</NetworkLocation>
-        <SkipMachineOOBE>true</SkipMachineOOBE>
-        <SkipUserOOBE>true</SkipUserOOBE>
-      </OOBE>
-      <UserAccounts>
-        <AdministratorPassword>
-          <Value>$encodedPass</Value>
-          <PlainText>false</PlainText>
-        </AdministratorPassword>
-      </UserAccounts>
-      <AutoLogon>
-        <Enabled>true</Enabled>
-        <LogonCount>1</LogonCount>
-        <Username>Administrator</Username>
-        <Password>
-          <Value>$encodedPass</Value>
-          <PlainText>false</PlainText>
-        </Password>
-      </AutoLogon>
-    </component>
-  </settings>
-</unattend>
-"@
+    $xml = (Get-Content -Path $templatePath -Raw) `
+        -replace '%%COMPUTERNAME%%', $VMName `
+        -replace '%%IPADDRESS%%',    $IPAddress `
+        -replace '%%GATEWAY%%',      $Lab.DefaultGateway `
+        -replace '%%DNSSERVER%%',    $dns `
+        -replace '%%DOMAINNAME%%',   $Lab.DomainName `
+        -replace '%%ENCODEDPASS%%',  $encodedPass
 
     $outFile = Join-Path $Lab.UnattendPath "unattend_$VMName.xml"
-    $xml | Out-File -FilePath $outFile -Encoding utf8 -Force
+    [System.IO.File]::WriteAllText($outFile, $xml, [System.Text.Encoding]::UTF8)
     Write-Info "  Unattend XML written: $outFile"
     return $outFile
 }
