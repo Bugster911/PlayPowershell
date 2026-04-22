@@ -99,13 +99,13 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
         -DomainName            $domain `
         -DomainNetbiosName     $netbios `
         -SafeModeAdministratorPassword $dsrmSec `
-        -InstallDns            $true `
-        -CreateDnsDelegation   $false `
+        -InstallDns `
+        -CreateDnsDelegation:  $false `
         -DatabasePath          'C:\Windows\NTDS' `
         -SysvolPath            'C:\Windows\SYSVOL' `
         -LogPath               'C:\Windows\NTDS' `
-        -NoRebootOnCompletion  $false `
-        -Force                 $true
+        -NoRebootOnCompletion: $false `
+        -Force
 
 } -ArgumentList $Lab.DomainName, $Lab.DomainNetbios, $Lab.DSRMPassword, $Lab.AdminPassword
 

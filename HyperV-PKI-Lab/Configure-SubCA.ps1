@@ -168,7 +168,7 @@ $reqFile = Invoke-Command -VMName $subVMName -Credential $domainCred -ScriptBloc
         -OutputCertRequestFile  'C:\SubCA\SubCA.req' `
         -DatabaseDirectory      'C:\Windows\System32\CertLog' `
         -LogDirectory           'C:\Windows\System32\CertLog' `
-        -Force                  $true `
+        -Force `
         -Confirm:               $false `
         -ErrorAction            SilentlyContinue
 

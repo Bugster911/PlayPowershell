@@ -122,7 +122,7 @@ Invoke-Command -VMName $vmName -Credential $localCred -ScriptBlock {
         -ValidityPeriodUnits    10 `
         -DatabaseDirectory      'C:\Windows\System32\CertLog' `
         -LogDirectory           'C:\Windows\System32\CertLog' `
-        -Force                  $true `
+        -Force `
         -Confirm:               $false
 
     Write-Host "  Root CA '$caName' installed."
